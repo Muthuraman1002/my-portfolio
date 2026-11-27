@@ -1,0 +1,39 @@
+{
+  "expo": {
+    "name": "My Portfolio",
+    "slug": "my-portfolio",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.myportfolio.appqpe8v3",
+      "appleTeamId": "4YBS7V7F39",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
+    "android": {
+      "package": "com.myportfolio.appqpe8v3",
+      "allowBackup": false
+    },
+    "plugins": [
+      [
+        "expo-local-authentication",
+        {
+          "faceIDPermission": "Use Face ID to unlock your portfolio."
+        }
+      ],
+      "expo-secure-store",
+      "expo-document-picker",
+      [
+        "expo-build-properties",
+        {
+          "ios": {
+            "deploymentTarget": "17.0"
+          }
+        }
+      ]
+    ]
+  }
+}
