@@ -14,6 +14,7 @@ export function schemesFromCAS(parsed, amcFilter = "Tata") {
       schemes.push({
         key: `${f.folio}|${s.isin || s.scheme}`, folio: f.folio, amc: f.amc, name: s.scheme, isin: s.isin, code: "",
         units: s.close, casCost: s.valuation.cost, casNav: s.valuation.nav, casDate: s.valuation.date,
+        statementTo: (parsed.period && parsed.period.to) || parsed.statementDate || null,
         transactions: s.transactions.map((t) => ({ date: t.date, type: t.type, desc: t.description, amount: t.amount, units: t.units, nav: t.nav })),
         source: "cas",
       });
@@ -22,21 +23,78 @@ export function schemesFromCAS(parsed, amcFilter = "Tata") {
   return schemes;
 }
 
-// Average-cost units and cost, FIFO lots for holding age, and investor cash flows.
+// ---- SIP instalments after the last statement, from the folio's SIP registrations.
+// How Tata/CAMS process a monthly SIP (checked against real statements):
+//  - the debit happens on the SIP day, or the next business day if that's a holiday;
+//  - units are allotted at the NAV of the next business day after the debit;
+//  - stamp duty of 0.005% is included in the amount: amount x 0.005 / 100.005, rounded (Rs 4,500 buys Rs 4,499.78 of units);
+//  - a top-up raises the amount every `topUpEvery` months, counted from the SIP's start month.
+// Business days are the days that have a NAV, so holidays are handled by the NAV history itself.
+const pad2 = (n) => String(n).padStart(2, "0");
+const STAMP = 0.00005;
+
+export function sipAmountOn(sip, monthIndex) {
+  return sip.amount + (sip.topUpEvery > 0 ? sip.topUp * Math.floor(monthIndex / sip.topUpEvery) : 0);
+}
+
+// sip: { day, from, to, amount, topUp, topUpEvery }; after: last date the statement covers; navRows: [[iso, nav]] ascending.
+export function sipInstalments(sip, after, navRows) {
+  const out = [];
+  if (!navRows || !navRows.length || !sip.from) return out;
+  const firstOnOrAfter = (d) => { const i = navRows.findIndex((r) => r[0] >= d); return i < 0 ? -1 : i; };
+  let y = +sip.from.slice(0, 4), m = +sip.from.slice(5, 7);
+  for (let k = 0; k < 1200; k++, m === 12 ? (m = 1, y++) : m++) {
+    const days = new Date(Date.UTC(y, m, 0)).getUTCDate();
+    const due = `${y}-${pad2(m)}-${pad2(Math.min(sip.day, days))}`;
+    if (due < sip.from) continue;
+    if (sip.to && due > sip.to) break;
+    const debit = firstOnOrAfter(due);
+    if (debit < 0 || debit + 1 >= navRows.length) break; // NAV for the allotment day isn't out yet
+    const [date, nav] = navRows[debit + 1];
+    if (date <= after) continue;                          // already in the statement
+    const gross = sipAmountOn(sip, k);
+    const stamp = Math.round((gross * STAMP) / (1 + STAMP) * 100) / 100;
+    const net = Math.round((gross - stamp) * 100) / 100;
+    out.push({ date, type: "PURCHASE_SIP", desc: `SIP instalment, estimated (Rs ${gross})`, amount: net, units: Math.round((net / nav) * 1000) / 1000, nav, estimated: true });
+    out.push({ date, type: "STAMP_DUTY_TAX", desc: "Stamp duty, estimated", amount: stamp, units: null, nav: null, estimated: true });
+  }
+  return out;
+}
+
+// The next instalment of a SIP on or after `today`: { due, amount } or null once it has ended.
+export function nextSip(sip, today) {
+  let y = +sip.from.slice(0, 4), m = +sip.from.slice(5, 7);
+  for (let k = 0; k < 1200; k++, m === 12 ? (m = 1, y++) : m++) {
+    const due = `${y}-${pad2(m)}-${pad2(Math.min(sip.day, new Date(Date.UTC(y, m, 0)).getUTCDate()))}`;
+    if (sip.to && due > sip.to) return null;
+    if (due >= today && due >= sip.from) {
+      const nextTop = sip.topUpEvery > 0 ? (() => { const n = Math.ceil((k + 1) / sip.topUpEvery) * sip.topUpEvery; const ym = new Date(Date.UTC(+sip.from.slice(0, 4), +sip.from.slice(5, 7) - 1 + n, 1)); return `${ym.getUTCFullYear()}-${pad2(ym.getUTCMonth() + 1)}`; })() : null;
+      return { due, amount: sipAmountOn(sip, k), nextTopUpMonth: k % (sip.topUpEvery || 1) === 0 && k > 0 ? due.slice(0, 7) : nextTop };
+    }
+  }
+  return null;
+}
+
+// Units, cost and lots by first-in-first-out (as CAMS and the tax rules count it), and investor cash flows.
+// lots: [date, units, costPerUnit]; a redemption takes the oldest units first. Stamp duty adds to the cost of that day's purchase.
 export function position(txns) {
-  let units = 0, cost = 0;
+  let units = 0;
   const lots = [], flows = [];
   for (const t of [...txns].sort((a, b) => (a.date < b.date ? -1 : 1))) {
     const amt = t.amount || 0, u = t.units;
-    if (t.type === "STAMP_DUTY_TAX") { cost += Math.abs(amt); flows.push([t.date, -Math.abs(amt)]); continue; }
+    if (t.type === "STAMP_DUTY_TAX") {
+      const lot = lots.length ? lots[lots.length - 1] : null;
+      if (lot && lot[1] > 0) lot[2] += Math.abs(amt) / lot[1];
+      flows.push([t.date, -Math.abs(amt)]);
+      continue;
+    }
     if (t.type === "DIVIDEND_PAYOUT") { flows.push([t.date, Math.abs(amt)]); continue; }
     if (u == null) continue;
     if (u > 0) {
-      units += u; cost += Math.abs(amt); lots.push([t.date, u]);
+      units += u; lots.push([t.date, u, Math.abs(amt) / u]);
       if (t.type !== "DIVIDEND_REINVEST") flows.push([t.date, -Math.abs(amt)]);
     } else if (u < 0) {
       let out = -u;
-      if (units > 0) cost -= cost * Math.min(1, out / units);
       units -= out;
       while (out > 1e-9 && lots.length) {
         const take = Math.min(out, lots[0][1]);
@@ -46,7 +104,9 @@ export function position(txns) {
       flows.push([t.date, Math.abs(amt)]);
     }
   }
-  return { units: Math.max(units, 0), cost: Math.max(cost, 0), lots: lots.filter((l) => l[1] > 1e-6), flows };
+  const open = lots.filter((l) => l[1] > 1e-6);
+  const cost = open.reduce((a, l) => a + l[1] * l[2], 0);
+  return { units: Math.max(units, 0), cost: Math.max(cost, 0), lots: open, flows };
 }
 
 function niftyValue(flows, bench) {

@@ -474,6 +474,13 @@ export function Funds({ openFund, openImport, openManual }) {
         <Row label="You invested" value={money(m.cost)} />
         <Row label="Profit / loss" value={`${signed(m.pnl)} (${pct(m.pnlPct)})`} color={tone(t, m.pnl)} />
         <Row label="Latest day" value={signed(m.dayChange)} color={tone(t, m.dayChange)} last />
+        {(() => {
+          const sch = fv.schemes || [];
+          const est = sch.reduce((a, x) => a + (x.estimatedInstalments || 0), 0);
+          const monthly = sch.reduce((a, x) => a + (x.nextSips || []).reduce((b, n) => b + n.amount, 0), 0);
+          if (!monthly && !est) return null;
+          return <T size={12} muted style={{ marginTop: 6 }}>{monthly ? `SIPs: ${money(monthly)} a month, added automatically.` : ""}{est ? ` Includes ${est} estimated instalment${est === 1 ? "" : "s"} since your last statement.` : ""}</T>;
+        })()}
         {fv.perf && <Verdict x={fv.perf.xirr} nx={fv.perf.niftyXirr} what="Your funds are" />}
         <PerfChart perf={fv.perf} color={t.mf} label="Your funds" />
       </Card>

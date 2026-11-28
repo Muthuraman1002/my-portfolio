@@ -224,7 +224,9 @@ export function FundSheet({ fund: f, onClose }) {
   const [range, setRange] = useState("252");
   const [msg, setMsg] = useState("");
   if (!f) return null;
-  const scheme = data.schemeByKey(f.key);
+  // The valued copy includes SIP instalments added since the last statement.
+  const scheme = ((data.fundView && data.fundView.schemes) || []).find((s) => s.key === f.key) || data.schemeByKey(f.key);
+  const fmtMonth = (ym) => (ym ? new Date(ym + "-01T00:00:00").toLocaleDateString("en-IN", { month: "short", year: "numeric" }) : "");
   const hist = (data.fundView && data.fundView.navs[f.code]) || [];
   const n = +range;
   const part = hist.slice(-n);
@@ -263,11 +265,24 @@ export function FundSheet({ fund: f, onClose }) {
       <Row label="Last SIP" value={f.lastSip ? shortDate(f.lastSip) : "None"} />
       <Row label="Category" value={f.category ? f.category.split(" - ").pop() : "—"} last />
 
+      {scheme && scheme.sips && scheme.sips.length > 0 && <>
+        <H style={{ marginTop: 20 }}>Your SIPs</H>
+        {scheme.sips.map((p, i) => {
+          const nx = scheme.nextSips && scheme.nextSips[i] ? scheme.nextSips[i] : null;
+          return <Row key={i} label={`Day ${p.day} each month${p.topUp ? `, +${money(p.topUp)} every ${p.topUpEvery} months` : ""}`}
+            value={nx ? `${money(nx.amount)} on ${shortDate(nx.due)}${nx.nextTopUpMonth && p.topUp ? ` · next top-up ${fmtMonth(nx.nextTopUpMonth)}` : ""}` : "Ended"} last={i === scheme.sips.length - 1} />;
+        })}
+        <T size={12} muted style={{ marginTop: 6, lineHeight: 17 }}>
+          {scheme.estimatedInstalments ? `${scheme.estimatedInstalments} instalment${scheme.estimatedInstalments === 1 ? "" : "s"} since your statement of ${shortDate(scheme.statementTo)} ${scheme.estimatedInstalments === 1 ? "is" : "are"} estimated from these SIPs at the actual NAVs. ` : `Your statement covers up to ${shortDate(scheme.statementTo)}. `}
+          New instalments are added automatically, at the next business day's NAV, until you import a newer statement. A missed payment won't show until then.
+        </T>
+      </>}
+
       <H style={{ marginTop: 20 }}>Your transactions</H>
       {txns.length ? txns.slice(0, 60).map((x, i) => (
         <View key={i} style={{ flexDirection: "row", paddingVertical: 7, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: t.line }}>
           <T size={13} style={{ width: 78 }}>{shortDate(x.date)}</T>
-          <T size={13} style={{ flex: 1 }}>{TXN[x.type] || x.type}</T>
+          <T size={13} style={{ flex: 1 }}>{TXN[x.type] || x.type}{x.estimated ? <T size={11} weight="700" color={t.flag}>  ESTIMATED</T> : null}</T>
           <T size={13} color={tone(t, -(x.amount || 0))} style={{ width: 90, textAlign: "right" }}>{money(Math.abs(x.amount || 0))}</T>
           <T size={13} muted style={{ width: 78, textAlign: "right" }}>{x.units == null ? "—" : units(x.units)}</T>
         </View>

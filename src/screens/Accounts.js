@@ -6,7 +6,8 @@ import * as LocalAuthentication from "expo-local-authentication";
 import { useData } from "../data";
 import { useTheme } from "../theme";
 import { Button, Card, Field, H, Notice, Row, Sheet, T } from "../components/ui";
-import { parseCAS } from "../cas/parse";
+import { parseCAS, toLines } from "../cas/parse";
+import { isAMCStatement, parseAMCStatement } from "../cas/amc";
 import { searchFunds } from "../market";
 import { todayISO } from "../analytics";
 import { totp } from "../totp";
@@ -179,31 +180,33 @@ export function ImportSheet({ visible, onClose, reader }) {
   };
   const go = async () => {
     if (!file) return setErr("Choose your statement PDF first.");
-    if (!pw) return setErr("Enter the PDF password.");
     setErr(null);
     try {
       setBusy("Opening the PDF…");
       const b64 = await new File(file.uri).base64();
-      const pages = await reader.current.read(b64, pw);
+      const pages = await reader.current.read(b64, pw || undefined);
       setBusy("Reading your transactions…");
-      const parsed = parseCAS(pages);
+      // A consolidated CAS (CAMS + KFintech) or a fund house's own account statement for one folio
+      const text = toLines(pages.slice(0, 3)).map((l) => l.text).join("\n");
+      const parsed = isAMCStatement(text) ? parseAMCStatement(pages) : parseCAS(pages);
       setBusy("Matching funds to their NAVs…");
       const r = await data.importStatement(parsed);
       setFile(null); setPw("");
       onClose();
-      Alert.alert("Statement imported", `${r.funds} fund${r.funds === 1 ? "" : "s"} and ${r.transactions} transactions.${r.missingNav ? ` ${r.missingNav} fund${r.missingNav === 1 ? "" : "s"} couldn't be matched to a live NAV and will show the statement value.` : ""}`);
+      Alert.alert("Statement imported", `${r.funds} fund${r.funds === 1 ? "" : "s"} and ${r.transactions} transactions${r.folio ? ` from folio ${r.folio}` : ""}.${r.sips ? ` ${r.sips} SIP${r.sips === 1 ? "" : "s"} will keep adding instalments until your next statement.` : ""}${r.missingNav ? ` ${r.missingNav} fund${r.missingNav === 1 ? "" : "s"} couldn't be matched to a live NAV and will show the statement value.` : ""}`);
     } catch (e) { setErr(e.message); } finally { setBusy(""); }
   };
   const step = (n, text) => <View style={{ flexDirection: "row", gap: 8, marginBottom: 6 }}><T weight="700" color={t.brand}>{n}.</T><T style={{ flex: 1, lineHeight: 20 }}>{text}</T></View>;
   return (
-    <Sheet visible={visible} onClose={onClose} title="Import CAMS statement">
+    <Sheet visible={visible} onClose={onClose} title="Import a statement">
+      <T muted style={{ marginBottom: 12, lineHeight: 20 }}>Works with a CAMS/KFintech consolidated statement, or a fund house's own account statement for a folio (e.g. Tata Mutual Fund's). A fund house statement also brings in your SIPs, so new instalments keep being added automatically.</T>
       {step(1, "On camsonline.com go to Investors → Statements → CAS – CAMS+KFintech (or use mfcentral.com).")}
       {step(2, "Choose Detailed (it includes transactions), then a specific period from your first investment until today.")}
       {step(3, "Set a password. The PDF arrives in your email in a few minutes. Save it to Files, then pick it here.")}
       <Pressable onPress={() => Linking.openURL("https://www.camsonline.com/Investors/Statements/Consolidated-Account-Statement")}><T color={t.brand} style={{ marginBottom: 14 }}>Open the CAMS statement page</T></Pressable>
       <Button kind="ghost" title={file ? `Chosen: ${file.name}` : "Choose statement PDF"} onPress={pick} />
       <View style={{ height: 12 }} />
-      <Field label="PDF password" value={pw} onChangeText={setPw} secureTextEntry />
+      <Field label="PDF password (if it has one)" value={pw} onChangeText={setPw} secureTextEntry />
       <T size={12} muted style={{ marginBottom: 12 }}>Only {data.user.settings.amcFilter || "all"} funds are kept. The PDF is read on this phone and not uploaded. The PDF reader is downloaded from a public CDN the first time.</T>
       {err && <Notice tone="error">{err}</Notice>}
       <Button title={busy || "Import"} loading={!!busy} onPress={go} />

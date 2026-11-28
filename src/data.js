@@ -165,16 +165,25 @@ export function DataProvider({ children }) {
       if (!s.code || navs[s.code]) continue;
       try { const r = await navOf(s.code); navs[s.code] = r.rows; metas[s.code] = r.meta; } catch { navs[s.code] = []; }
     }
-    const firsts = fundSchemes.filter((s) => s.transactions.length).map((s) => s.transactions[0].date).sort();
+    // Add SIP instalments due since each folio's last statement, valued at the real NAVs (marked estimated).
+    const sips = isDemo ? [] : funds.sips || [];
+    const schemes = fundSchemes.map((s) => {
+      const mine = sips.filter((p) => p.folio === s.folio && p.isin && p.isin === s.isin);
+      if (!mine.length || !s.code || !s.statementTo) return s;
+      const est = mine.flatMap((p) => MF.sipInstalments(p, s.statementTo, navs[s.code] || []));
+      const next = mine.map((p) => MF.nextSip(p, A.todayISO())).filter(Boolean);
+      return { ...s, transactions: est.length ? [...s.transactions, ...est] : s.transactions, estimatedInstalments: est.filter((t) => t.units).length, sips: mine, nextSips: next };
+    });
+    const firsts = schemes.filter((s) => s.transactions.length).map((s) => [...s.transactions].sort((a, b) => (a.date < b.date ? -1 : 1))[0].date).sort();
     const bh = await bench(firsts[0] || A.addDays(A.todayISO(), -400));
-    const rows = MF.fundRows(fundSchemes, navs, metas, bh);
+    const rows = MF.fundRows(schemes, navs, metas, bh);
     const value = rows.reduce((a, r) => a + r.value, 0), cost = rows.reduce((a, r) => a + r.cost, 0);
     const cats = {};
     rows.forEach((r) => { const c = (r.category.split(" - ").pop() || "Other").trim(); cats[c] = (cats[c] || 0) + r.value; });
     const summary = { value, cost, pnl: value - cost, pnlPct: cost ? (value / cost - 1) * 100 : 0, dayChange: rows.reduce((a, r) => a + r.dayChange, 0),
       categories: Object.entries(cats).map(([k, v]) => [k, (v / (value || 1)) * 100]).sort((a, b) => b[1] - a[1]) };
-    return { rows, summary, perf: MF.fundPerformance(fundSchemes, navs, bh), navs };
-  }, [fundSchemes, navOf, bench]);
+    return { rows, summary, perf: MF.fundPerformance(schemes, navs, bh), navs, schemes };
+  }, [fundSchemes, navOf, bench, isDemo, funds.sips]);
 
   // ---------- wishlist
   // Kotak's Trade API has no watchlist endpoint, so the wishlist lives on this phone.
@@ -358,9 +367,17 @@ export function DataProvider({ children }) {
     }
     const codes = await M.isinCodes(schemes.map((s) => s.isin));
     for (const s of schemes) s.code = codes[s.isin] || "";
+    // Merge: a statement replaces only the folios it covers, so statements for different folios (or people) add up.
+    const folios = new Set(schemes.map((s) => s.folio));
+    const otherImports = funds.schemes.filter((s) => s.source === "cas" && !folios.has(s.folio));
     const manual = funds.schemes.filter((s) => s.source === "manual" && !schemes.some((x) => x.code && x.code === s.code));
-    await saveFunds({ schemes: [...schemes, ...manual], importedAt: new Date().toISOString(), period: parsed.period });
-    return { funds: schemes.length, transactions: schemes.reduce((a, s) => a + s.transactions.length, 0), missingNav: schemes.filter((s) => !s.code).length };
+    const newSips = (parsed.sips || []).filter((p) => p.isin).map((p) => ({ ...p, folio: parsed.folios[0].folio }));
+    const sips = [...(funds.sips || []).filter((p) => !folios.has(p.folio)), ...newSips];
+    await saveFunds({ schemes: [...otherImports, ...schemes, ...manual], sips, importedAt: new Date().toISOString(), period: parsed.period });
+    return {
+      funds: schemes.filter((s) => (s.units || 0) > 0.0005).length, transactions: schemes.reduce((a, s) => a + s.transactions.length, 0),
+      missingNav: schemes.filter((s) => !s.code).length, sips: newSips.length, folio: parsed.kind === "amc" ? parsed.folios[0].folio : null,
+    };
   };
   const addManualFund = async (code, name, entries) => {
     const { rows } = await navOf(code);
