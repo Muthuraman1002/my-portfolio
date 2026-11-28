@@ -11,7 +11,7 @@ import { totp } from "./totp";
 const Ctx = createContext(null);
 export const useData = () => useContext(Ctx);
 
-const USER_DEFAULT = { lots: {}, levels: {}, watchlist: [], wishlist: [], wishCategories: ["Long term", "Dividend", "Momentum"], settings: { amcFilter: "Tata", demo: false, lock: false, defaultBuyDate: null, allowBuying: false } };
+const USER_DEFAULT = { lots: {}, levels: {}, watchlist: [], wishlist: [], wishCategories: ["Long term", "Dividend", "Momentum"], settings: { amcFilter: "Tata", demo: false, lock: false, defaultBuyDate: null, allowBuying: false, appearance: "system" } };
 const istDay = (ms) => new Date(ms + 5.5 * 3600e3).toISOString().slice(0, 10);
 
 export function DataProvider({ children }) {
@@ -171,7 +171,7 @@ export function DataProvider({ children }) {
       const mine = sips.filter((p) => p.folio === s.folio && p.isin && p.isin === s.isin);
       if (!mine.length || !s.code || !s.statementTo) return s;
       const est = mine.flatMap((p) => MF.sipInstalments(p, s.statementTo, navs[s.code] || []));
-      const next = mine.map((p) => MF.nextSip(p, A.todayISO())).filter(Boolean);
+      const next = mine.map((p) => MF.nextSip(p, A.todayISO())); // same order as `sips`; null once a SIP has ended
       return { ...s, transactions: est.length ? [...s.transactions, ...est] : s.transactions, estimatedInstalments: est.filter((t) => t.units).length, sips: mine, nextSips: next };
     });
     const firsts = schemes.filter((s) => s.transactions.length).map((s) => [...s.transactions].sort((a, b) => (a.date < b.date ? -1 : 1))[0].date).sort();

@@ -5,7 +5,7 @@ import { File } from "expo-file-system";
 import * as LocalAuthentication from "expo-local-authentication";
 import { useData } from "../data";
 import { useTheme } from "../theme";
-import { Button, Card, Field, H, Notice, Row, Sheet, T } from "../components/ui";
+import { Button, Card, Field, Group, H, ListRow, Notice, Pill, Row, SectionLabel, Segmented, Sheet, T } from "../components/ui";
 import { parseCAS, toLines } from "../cas/parse";
 import { isAMCStatement, parseAMCStatement } from "../cas/amc";
 import { searchFunds } from "../market";
@@ -23,6 +23,8 @@ export function Accounts({ openImport, openManual, openLogin }) {
   const [busy, setBusy] = useState(false);
   const [amc, setAmc] = useState(data.user.settings.amcFilter || "");
   const [buyDate, setBuyDate] = useState(data.user.settings.defaultBuyDate || "");
+  const [kotakOpen, setKotakOpen] = useState(false);
+  const [openField, setOpenField] = useState(null);
   useEffect(() => { setEditing(!data.hasKotak); }, [data.hasKotak]);
 
   const startEdit = () => { setForm({ ...data.secrets }); setEditing(true); setMsg(null); };
@@ -57,83 +59,93 @@ export function Accounts({ openImport, openManual, openLogin }) {
   };
 
   const k = data.secrets;
+  const st = data.user.settings;
+  const kotakStatus = !data.hasKotak ? ["Not set up", "muted"] : data.shares && !data.isDemo ? ["Logged in", "gain"] : ["Logged out", "flag"];
+  const fundCount = data.funds.schemes.filter((x) => x.source === "cas").length;
+  const sipCount = (data.funds.sips || []).length;
+  const imported = data.funds.importedAt ? new Date(data.funds.importedAt).toLocaleDateString("en-IN", { day: "numeric", month: "short" }) : null;
+  const showKotak = kotakOpen || editing;
+  const sw = (value, onChange, label) => <Switch value={!!value} onValueChange={onChange} accessibilityLabel={label} />;
+
   return (
     <Screen>
-      <Card>
-        <H>Kotak Neo — shares</H>
-        {!editing ? (
-          <>
-            <Row label="Client code" value={k.ucc} />
-            <Row label="Mobile" value={k.mobile ? k.mobile.replace(/\d(?=\d{4})/g, "•") : "—"} />
-            <Row label="MPIN saved" value={k.mpin ? "Yes" : "No — asked at login"} />
-            <Row label="Automatic login" value={k.totpSecret && k.mpin ? "On (TOTP secret saved)" : "Off"} last />
-            {msg && <View style={{ marginTop: 10 }}><Notice tone={msg.tone}>{msg.text}</Notice></View>}
-            <View style={{ flexDirection: "row", gap: 10, marginTop: 12 }}>
-              <Button kind="ghost" title="Change details" style={{ flex: 1 }} onPress={startEdit} />
-              <Button title={data.shares ? "Log in again" : "Log in"} style={{ flex: 1 }} onPress={openLogin} />
-            </View>
-            {data.shares && !data.isDemo && <Button kind="ghost" title="Log out of Kotak" style={{ marginTop: 10 }} onPress={data.logoutKotak} />}
-          </>
-        ) : (
-          <>
-            <T muted size={13} style={{ marginBottom: 12, lineHeight: 19 }}>
-              In the Kotak Neo app, go to More → Trade API, create an application and copy its access token. Register TOTP on the same screen with Google or Microsoft Authenticator. This app reads your holdings and prices. It can place buy orders only if you turn on "Allow buying shares" below.
-            </T>
-            <Field label="Access token" value={form.accessToken} onChangeText={(v) => setForm({ ...form, accessToken: v })} secureTextEntry multiline={false} placeholder="Paste from Kotak Neo → Trade API" />
-            <Field label="Registered mobile number" value={form.mobile} onChangeText={(v) => setForm({ ...form, mobile: v })} keyboardType="phone-pad" placeholder="+91 98xxxxxx10" />
-            <Field label="Client code (UCC)" value={form.ucc} onChangeText={(v) => setForm({ ...form, ucc: v.toUpperCase() })} autoCapitalize="characters" />
-            <Field label="MPIN (optional)" value={form.mpin} onChangeText={(v) => setForm({ ...form, mpin: v })} keyboardType="number-pad" secureTextEntry maxLength={6} hint="If you leave this empty, you'll be asked for it when you log in." />
-            <Field label="TOTP secret (optional)" value={form.totpSecret} onChangeText={(v) => setForm({ ...form, totpSecret: v })} secureTextEntry
-              hint="The text key shown under the QR code when you registered TOTP. With this and your MPIN saved, the app logs in by itself each day." />
-            {msg && <Notice tone={msg.tone}>{msg.text}</Notice>}
-            <Button title="Save and log in" loading={busy} onPress={save} />
-            {data.hasKotak && <Button kind="ghost" title="Cancel" style={{ marginTop: 10 }} onPress={() => setEditing(false)} />}
-            <T size={12} muted style={{ marginTop: 10 }}>Stored only in this phone's secure storage ({"iOS Keychain / Android Keystore"}). Nothing is sent anywhere except to Kotak.</T>
-          </>
-        )}
-      </Card>
+      <SectionLabel style={{ paddingTop: 0 }}>Connections</SectionLabel>
+      <Group>
+        <ListRow title="Kotak Neo" sub="Shares, prices, MCX gold" right={<Pill text={kotakStatus[0]} tone={kotakStatus[1]} />} chevron onPress={() => setKotakOpen(!kotakOpen)} />
+        <ListRow title="Fund statements" sub={fundCount ? `${fundCount} fund${fundCount === 1 ? "" : "s"}${imported ? ` · imported ${imported}` : ""}${sipCount ? ` · ${sipCount} SIP${sipCount === 1 ? "" : "s"}` : ""}` : "CAMS or fund house statement (PDF)"} right={<Pill text="Import" />} chevron onPress={openImport} />
+        <ListRow title="Add a fund by hand" sub="When you don't have a statement" chevron onPress={openManual} last />
+      </Group>
 
-      <Card>
-        <H>CAMS — mutual funds</H>
-        <T muted size={13} style={{ marginBottom: 10, lineHeight: 19 }}>
-          CAMS doesn't offer an investor API, so there are no CAMS login details to enter. Instead, request your Consolidated Account Statement (CAS) by email and import the PDF here.
-        </T>
-        <Row label="Funds" value={data.funds.schemes.length ? `${data.funds.schemes.length} from your statement` : "None yet"} />
-        <Row label="Last imported" value={data.funds.importedAt ? new Date(data.funds.importedAt).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }) : "—"} />
-        <Row label="Fund house kept" value={data.user.settings.amcFilter || "All"} last />
-        <View style={{ flexDirection: "row", gap: 10, marginTop: 12 }}>
-          <Button kind="ghost" title="Add by hand" style={{ flex: 1 }} onPress={openManual} />
-          <Button title="Import statement" style={{ flex: 1 }} onPress={openImport} />
-        </View>
-        <Field label="Keep funds from" value={amc} onChangeText={setAmc} onEndEditing={() => data.saveSettings({ amcFilter: amc.trim() })}
-          hint="Leave empty to keep every fund house in your statement. Applies to the next import." />
-      </Card>
+      {showKotak && (
+        <Card style={{ marginTop: 10 }}>
+          <H>Kotak Neo</H>
+          {!editing ? (
+            <>
+              <Row label="Client code" value={k.ucc} />
+              <Row label="Mobile" value={k.mobile ? k.mobile.replace(/\d(?=\d{4})/g, "•") : "—"} />
+              <Row label="MPIN saved" value={k.mpin ? "Yes" : "No — asked at login"} />
+              <Row label="Automatic login" value={k.totpSecret && k.mpin ? "On (TOTP secret saved)" : "Off"} last />
+              {msg && <View style={{ marginTop: 10 }}><Notice tone={msg.tone}>{msg.text}</Notice></View>}
+              <View style={{ flexDirection: "row", gap: 10, marginTop: 12 }}>
+                <Button kind="ghost" title="Change details" style={{ flex: 1 }} onPress={startEdit} />
+                <Button title={data.shares ? "Log in again" : "Log in"} style={{ flex: 1 }} onPress={openLogin} />
+              </View>
+              {data.shares && !data.isDemo && <Button kind="ghost" title="Log out of Kotak" style={{ marginTop: 10 }} onPress={data.logoutKotak} />}
+            </>
+          ) : (
+            <>
+              <T muted size={13} style={{ marginBottom: 12, lineHeight: 19 }}>
+                In the Kotak Neo app, go to More → Trade API, create an application and copy its access token. Register TOTP on the same screen with Google or Microsoft Authenticator. This app reads your holdings and prices. It can place buy orders only if you turn on "Allow buying shares" below.
+              </T>
+              <Field label="Access token" value={form.accessToken} onChangeText={(v) => setForm({ ...form, accessToken: v })} secureTextEntry multiline={false} placeholder="Paste from Kotak Neo → Trade API" />
+              <Field label="Registered mobile number" value={form.mobile} onChangeText={(v) => setForm({ ...form, mobile: v })} keyboardType="phone-pad" placeholder="+91 98xxxxxx10" />
+              <Field label="Client code (UCC)" value={form.ucc} onChangeText={(v) => setForm({ ...form, ucc: v.toUpperCase() })} autoCapitalize="characters" />
+              <Field label="MPIN (optional)" value={form.mpin} onChangeText={(v) => setForm({ ...form, mpin: v })} keyboardType="number-pad" secureTextEntry maxLength={6} hint="If you leave this empty, you'll be asked for it when you log in." />
+              <Field label="TOTP secret (optional)" value={form.totpSecret} onChangeText={(v) => setForm({ ...form, totpSecret: v })} secureTextEntry
+                hint="The text key shown under the QR code when you registered TOTP. With this and your MPIN saved, the app logs in by itself each day." />
+              {msg && <Notice tone={msg.tone}>{msg.text}</Notice>}
+              <Button title="Save and log in" loading={busy} onPress={save} />
+              {data.hasKotak && <Button kind="ghost" title="Cancel" style={{ marginTop: 10 }} onPress={() => setEditing(false)} />}
+              <T size={12} muted style={{ marginTop: 10 }}>Stored only in this phone's secure storage (iOS Keychain / Android Keystore). Nothing is sent anywhere except to Kotak.</T>
+            </>
+          )}
+        </Card>
+      )}
 
-      <Card>
-        <H>App</H>
-        <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingVertical: 6 }}>
-          <View style={{ flex: 1 }}><T>Lock with Face ID / fingerprint</T><T size={12} muted>Asked each time you open the app.</T></View>
-          <Switch value={!!data.user.settings.lock} onValueChange={toggleLock} />
-        </View>
-        <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingVertical: 6 }}>
-          <View style={{ flex: 1 }}><T>Allow buying shares</T><T size={12} muted>Delivery buy orders through Kotak Neo, each confirmed with Face ID. Off by default.</T></View>
-          <Switch value={!!data.user.settings.allowBuying} onValueChange={toggleBuying} />
-        </View>
-        <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingVertical: 6 }}>
-          <View style={{ flex: 1 }}><T>Demo data</T><T size={12} muted>Made-up holdings and funds to try the app.</T></View>
-          <Switch value={data.isDemo} onValueChange={data.setDemo} />
-        </View>
-        <Field label="Estimated buy date for shares without purchase dates" placeholder="YYYY-MM-DD (default: a year ago)" value={buyDate} onChangeText={setBuyDate}
-          onEndEditing={() => { if (!buyDate || /^\d{4}-\d{2}-\d{2}$/.test(buyDate)) data.saveSettings({ defaultBuyDate: buyDate || null }); else setBuyDate(data.user.settings.defaultBuyDate || ""); }} />
-        <Button kind="ghost" danger title="Erase all data from this phone" style={{ marginTop: 6 }} onPress={() =>
+      <SectionLabel style={{ paddingTop: 18 }}>Appearance</SectionLabel>
+      <Group style={{ padding: 12 }}>
+        <Segmented value={st.appearance || "system"} onChange={(v) => data.saveSettings({ appearance: v })} options={[["system", "Same as phone"], ["light", "Light"], ["dark", "Dark"]]} />
+      </Group>
+
+      <SectionLabel style={{ paddingTop: 18 }}>Buying</SectionLabel>
+      <Group>
+        <ListRow title="Allow buying shares" sub="Delivery orders through Kotak Neo, each confirmed with Face ID" right={sw(st.allowBuying, toggleBuying, "Allow buying shares")} last />
+      </Group>
+
+      <SectionLabel style={{ paddingTop: 18 }}>Safety</SectionLabel>
+      <Group>
+        <ListRow title="Lock with Face ID" sub="Asked each time you open the app" right={sw(st.lock, toggleLock, "Lock with Face ID")} />
+        <ListRow title="Erase all data from this phone" right={<T size={14} weight="600" color={t.loss}>Erase</T>} last onPress={() =>
           Alert.alert("Erase everything?", "This removes your Kotak details, imported funds, purchases and plans from this phone.", [
             { text: "Cancel", style: "cancel" }, { text: "Erase", style: "destructive", onPress: data.eraseEverything },
           ])} />
-      </Card>
-      <T size={12} muted style={{ lineHeight: 17 }}>Prices: Kotak Neo. Nifty 50 history: Yahoo Finance. Fund NAVs: mfapi.in (AMFI data). News: Google News.</T>
+      </Group>
+
+      <SectionLabel style={{ paddingTop: 18 }}>App</SectionLabel>
+      <Group>
+        <ListRow title="Keep funds from" sub="Fund house kept when importing a statement" right={st.amcFilter || "All"} chevron onPress={() => setOpenField(openField === "amc" ? null : "amc")} />
+        {openField === "amc" && <View style={{ paddingHorizontal: 16 }}><Field value={amc} onChangeText={setAmc} autoFocus onEndEditing={() => { data.saveSettings({ amcFilter: amc.trim() }); setOpenField(null); }} hint="Leave empty to keep every fund house. Applies to the next import." /></View>}
+        <ListRow title="Estimated buy date" sub="For shares without purchase dates" right={st.defaultBuyDate ? shortIso(st.defaultBuyDate) : "A year ago"} chevron onPress={() => setOpenField(openField === "date" ? null : "date")} />
+        {openField === "date" && <View style={{ paddingHorizontal: 16 }}><Field value={buyDate} onChangeText={setBuyDate} autoFocus placeholder="YYYY-MM-DD (empty: a year ago)"
+          onEndEditing={() => { if (!buyDate || /^\d{4}-\d{2}-\d{2}$/.test(buyDate)) data.saveSettings({ defaultBuyDate: buyDate || null }); else setBuyDate(st.defaultBuyDate || ""); setOpenField(null); }} /></View>}
+        <ListRow title="Demo data" sub="Made-up holdings and funds to try the app" right={sw(data.isDemo, data.setDemo, "Demo data")} last />
+      </Group>
+      <T size={12} muted style={{ lineHeight: 17, marginTop: 12, marginHorizontal: 4 }}>Prices: Kotak Neo. Nifty 50 history: Yahoo Finance. Fund NAVs: AMFI via mfapi.in. News: Google News.</T>
     </Screen>
   );
 }
+
+const shortIso = (iso) => new Date(iso + "T00:00:00").toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
 
 // ================================================================ Kotak login
 export function LoginSheet({ visible, onClose }) {

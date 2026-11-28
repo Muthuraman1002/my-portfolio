@@ -102,3 +102,84 @@ export function Notice({ children, tone = "info" }) {
   const c = tone === "error" ? t.loss : tone === "warn" ? t.flag : t.brand;
   return <View style={{ borderLeftWidth: 3, borderColor: c, paddingLeft: 10, paddingVertical: 4, marginBottom: 12 }}><T size={14} color={tone === "error" ? t.loss : t.ink}>{children}</T></View>;
 }
+
+// Small labelled number, laid out in a grid with <Tiles>.
+export function Tile({ label, value, sub, color, third, onCard }) {
+  const t = useTheme();
+  return (
+    <View style={{ flexBasis: third ? "30%" : "47%", flexGrow: 1, backgroundColor: onCard ? t.surface : t.ground, borderRadius: onCard ? 12 : 10, padding: 10 }}>
+      <T size={12} muted>{label}</T>
+      <T size={17} weight="700" color={color} style={{ marginTop: 2 }} numberOfLines={1}>{value}</T>
+      {sub ? <T size={11} muted numberOfLines={1}>{sub}</T> : null}
+    </View>
+  );
+}
+export const Tiles = ({ children, style }) => <View style={[{ flexDirection: "row", flexWrap: "wrap", gap: 8 }, style]}>{children}</View>;
+
+// A thin bar split into coloured segments: items [{ value, color }]
+export function SplitBar({ items, height = 10 }) {
+  const t = useTheme();
+  const total = items.reduce((a, x) => a + x.value, 0) || 1;
+  return (
+    <View style={{ flexDirection: "row", height, borderRadius: height / 2, overflow: "hidden", backgroundColor: t.ground, gap: 2 }}>
+      {items.map((x, i) => <View key={i} style={{ width: `${(x.value / total) * 100}%`, backgroundColor: x.color }} />)}
+    </View>
+  );
+}
+
+// The coloured band at the top of a tab: label, headline number, a line under it, and optional extras (a split bar).
+// It sits flush against the screen edges and the top bar, which takes the same colour.
+export function Hero({ label, value, sub, color, children }) {
+  const t = useTheme();
+  return (
+    <View style={{ backgroundColor: color || t.band, marginHorizontal: -14, marginTop: -14, marginBottom: 12, paddingHorizontal: 16, paddingTop: 4, paddingBottom: 20 }}>
+      {label ? <T size={13} color="#FFFFFF" style={{ opacity: 0.85 }}>{label}</T> : null}
+      {value != null ? <T size={32} weight="800" color="#FFFFFF" style={{ letterSpacing: -0.5 }}>{value}</T> : null}
+      {sub ? <T size={14} weight="600" color="#FFFFFF">{sub}</T> : null}
+      {children}
+    </View>
+  );
+}
+
+// A pill-shaped choice (filters, categories).
+export function Chip({ label, on, onPress, onLongPress }) {
+  const t = useTheme();
+  return (
+    <Pressable onPress={onPress} onLongPress={onLongPress} accessibilityRole="button" accessibilityState={{ selected: !!on }}
+      style={{ paddingVertical: 6, paddingHorizontal: 12, borderRadius: 16, borderWidth: 1, borderColor: on ? t.brand : t.line, backgroundColor: on ? t.brandSoft : t.surface }}>
+      <T size={13} weight={on ? "700" : "400"} color={on ? t.brand : undefined}>{label}</T>
+    </Pressable>
+  );
+}
+
+// Small caps heading above a group of rows.
+export const SectionLabel = ({ children, style }) => <T size={12} weight="700" muted style={[{ letterSpacing: 0.4, paddingHorizontal: 4, paddingTop: 10, paddingBottom: 6 }, style]}>{String(children).toUpperCase()}</T>;
+
+// A small coloured status label, e.g. "Logged in".
+export function Pill({ text, tone = "brand" }) {
+  const t = useTheme();
+  const c = tone === "gain" ? t.gain : tone === "loss" ? t.loss : tone === "flag" ? t.flag : tone === "muted" ? t.muted : t.brand;
+  return <View style={{ paddingVertical: 3, paddingHorizontal: 9, borderRadius: 10, backgroundColor: c + "1F" }}><T size={12} weight="700" color={c}>{text}</T></View>;
+}
+
+// One row in a grouped list: title, optional line under it, and something on the right (a value, pill or switch).
+export function ListRow({ title, sub, right, onPress, last, chevron }) {
+  const t = useTheme();
+  const body = (
+    <View style={{ flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 13, paddingHorizontal: 16, borderBottomWidth: last ? 0 : StyleSheet.hairlineWidth, borderColor: t.line }}>
+      <View style={{ flex: 1 }}>
+        <T weight="600">{title}</T>
+        {sub ? <T size={12} muted>{sub}</T> : null}
+      </View>
+      {typeof right === "string" ? <T size={14} muted>{right}</T> : right}
+      {chevron ? <T size={18} color={t.muted}>›</T> : null}
+    </View>
+  );
+  return onPress ? <Pressable onPress={onPress} style={({ pressed }) => ({ backgroundColor: pressed ? t.brandSoft : "transparent" })}>{body}</Pressable> : body;
+}
+
+// A white rounded group holding ListRows.
+export function Group({ children, style }) {
+  const t = useTheme();
+  return <View style={[{ backgroundColor: t.surface, borderRadius: 14, borderWidth: StyleSheet.hairlineWidth, borderColor: t.line, overflow: "hidden" }, style]}>{children}</View>;
+}

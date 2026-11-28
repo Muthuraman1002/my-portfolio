@@ -5,7 +5,7 @@ import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
 import * as LocalAuthentication from "expo-local-authentication";
 import { DataProvider, useData } from "./src/data";
-import { useTheme } from "./src/theme";
+import { AppearanceContext, useTheme } from "./src/theme";
 import { Button, T } from "./src/components/ui";
 import { Funds, Overview, Shares, Wishlist } from "./src/screens/Tabs";
 import { Accounts, ImportSheet, LoginSheet, ManualFundSheet } from "./src/screens/Accounts";
@@ -64,11 +64,14 @@ function Main() {
   }
 
   const title = { overview: "My portfolio", shares: "Shares", wishlist: "Wishlist", funds: "Mutual funds", accounts: "Accounts" }[tab];
+  // The top bar takes the colour of the tab's headline band so the two read as one.
+  const bar = tab === "funds" ? t.bandMf : t.band;
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: t.surface }} edges={["top"]}>
-      <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, paddingVertical: 10 }}>
-        <T size={22} weight="800">{title}</T>
-        <T size={12} muted>{data.status.loading ? "Updating…" : data.status.asOf ? `Updated ${data.status.asOf.toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit" })}` : ""}</T>
+    <SafeAreaView style={{ flex: 1, backgroundColor: bar }} edges={["top"]}>
+      <StatusBar style="light" />
+      <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, paddingTop: 8, paddingBottom: 10, backgroundColor: bar }}>
+        <T size={20} weight="800" color="#FFFFFF">{title}</T>
+        <T size={12} color="#FFFFFF" style={{ opacity: 0.85 }}>{data.status.loading ? "Updating…" : data.status.asOf ? `Updated ${data.status.asOf.toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit" })}` : ""}</T>
       </View>
       <View style={{ flex: 1, backgroundColor: t.ground }}>
         {tab === "overview" && <Overview openStock={setStock} openFund={setFund} goTo={setTab} />}
@@ -98,12 +101,17 @@ function Main() {
   );
 }
 
+// Applies the appearance chosen in Accounts (system, light or dark) to every screen, pop-ups included.
+function Themed() {
+  const data = useData();
+  return <AppearanceContext.Provider value={(data.user && data.user.settings.appearance) || "system"}><Main /></AppearanceContext.Provider>;
+}
+
 export default function App() {
   return (
     <SafeAreaProvider>
       <DataProvider>
-        <StatusBar style="auto" />
-        <Main />
+        <Themed />
       </DataProvider>
     </SafeAreaProvider>
   );
